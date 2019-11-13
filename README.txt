@@ -1,35 +1,26 @@
-<Please submit this file with your solution.>
+#CSCI 580 Final Project - Curly Hair Simulation via Mass-Springs
 
-CSCI 520, Assignment 1
+[Original assignment](http://run.usc.edu/cs520-s19/assign1/)
 
-Christin Carter
-================
+##Controls
+- `b` - Show/Hide Bend Springs
+- `e` - Reset viewmode to Springs
+- `h` - Show/Hide Shear Springs 
+- `p` - Pause
+- `s` - Show/Hide Structural Springs
+- `v` - Switch viewmode between Springs and Jello
+- `Right Click` - Camera Rotation
+- `Space Bar` - Take 300 screenshots and save as picxxxx.PPM files (xxxx represents frame number). Program will terminate afterwards
 
-<Description of what you have accomplished>
-1. Shear Forces
-Each mass point is connected 20 diagonal neighbors. Hook's law is calculated for the force that each mass point
-has on each of those neighbors
-   
-2. Bend Forces
-Each mass is connected its 6 neighbors that are two mass points away. Hook's law is also calculated for the force
-that the mass point applies to these neighbors
+##Relevant Files
+###physics.h/cpp
+- Majority of the implementation is here. 
+- Responsible for calculating all spring, force-field, and collision forces.
 
-3. Structural Forces
-Each mass is connected its 6 direct neighbors in the x, y, and z directions. Hook's law is also calculated for the force
-that the mass point applies to these neighbors
+###input.h/cpp
+- Read/Write World files. World files contain information on the integrator type, timestep size, spring coefficients, force fields, and other information. See detailed info [here](http://run.usc.edu/cs520-s19/assign1/world.html).
+- Responsible for defining keyboard actions
 
-4. Collision Forces
-Each mass point's position is examined to see if they go outside the boundaries of the box and applies a collision
-force if so.
-
-5. Force Field Forces
-Each mass point's position is examined to see if it's inside a force field voxel, and applies a trilinear interpolation
-of the 8 force field vectors making up the corners of the voxel.
-
-6. Damping Forces
-For every spring force (shear, bend, structural) and collision force, a damping force has been applied.
-
-<Modified files>
-physics.cpp
-jello.cpp (For enabling screenshots)
-createWorld.cpp (For testing purposes)
+###jello.h/cpp
+- Main program execution starts here.
+- Sets up OpenGL and Window
