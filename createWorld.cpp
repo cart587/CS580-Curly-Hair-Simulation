@@ -131,11 +131,11 @@ int main()
 
   // set the integrator and the physical parameters
   // the values below are EXAMPLES, to be modified by you as needed
-  strcpy(jello.integrator,"RK4");
-  jello.dt=0.0005000;
+  strcpy(jello.integrator,"Euler");
+  jello.dt=0.0001000;
   jello.n=1;
   jello.kElastic=200;
-  jello.dElastic=0.25;
+  jello.dElastic=10.25;
   jello.kCollision=400.0;
   jello.dCollision=0.25;
   jello.mass= 1.0 / 512;
@@ -162,28 +162,26 @@ int main()
         z = -2 + 4*(1.0 * k / (jello.resolution-1));
 
 		jello.forceField[i * jello.resolution * jello.resolution
-			+ j * jello.resolution + k].x = j % 2 == 0 ? 25.0 : -25.0;
+			+ j * jello.resolution + k].x = 0.0;
         jello.forceField[i * jello.resolution * jello.resolution 
-          + j * jello.resolution + k].y = j % 2 == 0 ? 25.0 : -25.0;
+          + j * jello.resolution + k].y = 0.0;
         jello.forceField[i * jello.resolution * jello.resolution 
-          + j * jello.resolution + k].z = j % 2 == 0 ? 25.0 : -25.0;
+          + j * jello.resolution + k].z = -0.060000;
       }
-
-	//k >= jello.resolution / 2 ? (jello.resolution/2 - k)/12.0 : k/12.0;
 
   // set the positions of control points
   for (i=0; i<=7; i++)
     for (j=0; j<=7; j++)
 	    for (k=0; k<=7; k++)
       {
-        jello.p[i][j][k].x=1.0 * i / 7;
-	  	  jello.p[i][j][k].y=1.0 * j / 7;
-		    jello.p[i][j][k].z=1.0 * k / 7;
+		  jello.p[i][j][k].x = -1.0 * i / 7;
+		  jello.p[i][j][k].y = 0.0; //1.0 * j / 7;
+		  jello.p[i][j][k].z = 0.0; //-1.0 * i / 7;
         if ((i==7) && (j==7) && (k==7))
         {
-          jello.p[i][j][k].x=1.0 + 1.0 / 7;
-	    	  jello.p[i][j][k].y=1.0 + 1.0 / 7;
-		      jello.p[i][j][k].z=1.0 + 1.0 / 7;
+			jello.p[i][j][k].x = -(1.0 + 1.0 / 7);
+			jello.p[i][j][k].y = 0.0;//1.0 + 1.0 / 7;
+			jello.p[i][j][k].z = 0.0; //1.0 + 1.0 / 7;
         }
  
 
@@ -194,14 +192,14 @@ int main()
     for (j=0; j<=7; j++)
       for (k=0; k<=7; k++)
       {
-        jello.v[i][j][k].x=-20.0;
-	  	  jello.v[i][j][k].y=15.0;
-		    jello.v[i][j][k].z=-15.0;
+        jello.v[i][j][k].x=0.0;
+	  	  jello.v[i][j][k].y=0.0;
+		    jello.v[i][j][k].z=0.0;
       }
 
   // write the jello variable out to file on disk
   // change jello.w to whatever you need
-  writeWorld("leapfrog.w",&jello);
+  writeWorld("world/gravityNoVelocity.w",&jello);
 
   return 0;
 }

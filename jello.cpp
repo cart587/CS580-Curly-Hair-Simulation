@@ -145,7 +145,7 @@ void display()
 
   GLfloat mKa[] = { 0.0, 0.0, 0.0, 1.0 };
   GLfloat mKd[] = { 0.3, 0.3, 0.3, 1.0 };
-  GLfloat mKs[] = { 1.0, 1.0, 1.0, 1.0 };
+  GLfloat mKs[] = {0.0, 0.0, 0.0, 1.0 };
   GLfloat mKe[] = { 0.0, 0.0, 0.0, 1.0 };
 
   /* set up lighting */
@@ -158,7 +158,7 @@ void display()
   glMaterialfv(GL_FRONT, GL_DIFFUSE, mKd);
   glMaterialfv(GL_FRONT, GL_SPECULAR, mKs);
   glMaterialfv(GL_FRONT, GL_EMISSION, mKe);
-  glMaterialf(GL_FRONT, GL_SHININESS, 120);
+  //glMaterialf(GL_FRONT, GL_SHININESS, 120);
     
   // macro to set up light i
   #define LIGHTSETUP(i)\
