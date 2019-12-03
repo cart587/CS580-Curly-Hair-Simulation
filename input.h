@@ -22,5 +22,8 @@ void keyboardFunc (unsigned char key, int x, int y);
 void readWorld (char * fileName, struct world * jello);
 void writeWorld (char * fileName, struct world * jello);
 
+//CS580 functions
+void ComputeFramesInitial(struct world* jello);
+
 #endif
 

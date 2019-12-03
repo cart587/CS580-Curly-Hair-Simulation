@@ -27,7 +27,7 @@ int g_iLeftMouseButton,g_iMiddleMouseButton,g_iRightMouseButton;
 int sprite=0;
 
 // these variables control what is displayed on screen
-int shear=0, bend=0, structural=1, pause=0, viewingMode=0, saveScreenToFile=0;
+int shear=0, bend=0, structural=1, pause=0, viewingMode=0, saveScreenToFile=0, up=0, down=0, left=0, right=0;
 
 struct world jello;
 
@@ -224,10 +224,6 @@ void doIdle()
 	  if (strcmp(jello.integrator, "Euler") == 0)
 	  {
 		  Euler(&jello);
-	  }
-	  else if (strcmp(jello.integrator, "RK4") == 0)
-	  {
-		  RK4(&jello);
 	  }
 	  else
 	  {

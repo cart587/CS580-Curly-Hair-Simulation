@@ -76,6 +76,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <OutDir>$(SolutionDir)\Bin\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)\Bin\$(Configuration)\</IntDir>
+    <LibraryPath>C:\Users\Guest User\Documents\CS580\Project\520 Code\Assign1\freeglut-3.0.0-win32\include;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>

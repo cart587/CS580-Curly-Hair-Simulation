@@ -17,6 +17,7 @@
 #include <math.h>
 #include <stdlib.h>
 
+#define numMass 60
 struct point 
 {
    double x;
@@ -38,8 +39,8 @@ struct world
   double a,b,c,d; // inclined plane has equation a * x + b * y + c * z + d = 0; if no inclined plane, these four fields are not used
   int resolution; // resolution for the 3d grid specifying the external force field; value of 0 means that there is no force field
   struct point * forceField; // pointer to the array of values of the force field
-  struct point p[8][8][8]; // position of the 512 control points
-  struct point v[8][8][8]; // velocities of the 512 control points
+  struct point p[numMass]; // position of the 512 control points
+  struct point v[numMass]; // velocities of the 512 control points
 };
 
 
@@ -96,25 +97,17 @@ void writeWorld(const char * fileName, struct world * jello)
   
 
   /* write initial point positions */
-  for (i = 0; i <= 7 ; i++)
+  for (i = 0; i < numMass ; i++)
   {
-    for (j = 0; j <= 7; j++)
-    {
-      for (k = 0; k <= 7; k++)
         fprintf(file, "%lf %lf %lf\n", 
-          jello->p[i][j][k].x, jello->p[i][j][k].y, jello->p[i][j][k].z);
-    }
+          jello->p[i].x, jello->p[i].y, jello->p[i].z);
   }
       
   /* write initial point velocities */
-  for (i = 0; i <= 7 ; i++)
+  for (i = 0; i < numMass; i++)
   {
-    for (j = 0; j <= 7; j++)
-    {
-      for (k = 0; k <= 7; k++)
         fprintf(file, "%lf %lf %lf\n", 
-          jello->v[i][j][k].x, jello->v[i][j][k].y, jello->v[i][j][k].z);
-    }
+          jello->v[i].x, jello->v[i].y, jello->v[i].z);
   }
 
   fclose(file);
@@ -148,7 +141,7 @@ int main()
   jello.d=2;
 
   // set the external force field
-  jello.resolution=30;
+  jello.resolution=3;//30;
   jello.forceField = 
     (struct point *)malloc(jello.resolution*jello.resolution*jello.resolution*sizeof(struct point));
   for (i=0; i<= jello.resolution-1; i++)
@@ -165,37 +158,31 @@ int main()
 			+ j * jello.resolution + k].x = 0.0;
         jello.forceField[i * jello.resolution * jello.resolution 
           + j * jello.resolution + k].y = 0.0;
-        jello.forceField[i * jello.resolution * jello.resolution 
-          + j * jello.resolution + k].z = -0.060000;
+		jello.forceField[i * jello.resolution * jello.resolution
+			+ j * jello.resolution + k].z = -9.810000;
       }
 
-  // set the positions of control points
-  for (i=0; i<=7; i++)
-    for (j=0; j<=7; j++)
-	    for (k=0; k<=7; k++)
-      {
-		  jello.p[i][j][k].x = -1.0 * i / 7;
-		  jello.p[i][j][k].y = 0.0; //1.0 * j / 7;
-		  jello.p[i][j][k].z = 0.0; //-1.0 * i / 7;
-        if ((i==7) && (j==7) && (k==7))
-        {
-			jello.p[i][j][k].x = -(1.0 + 1.0 / 7);
-			jello.p[i][j][k].y = 0.0;//1.0 + 1.0 / 7;
-			jello.p[i][j][k].z = 0.0; //1.0 + 1.0 / 7;
-        }
- 
+  double radius = 0.25;
+  double c = 0.05;
+  double tRadians = 0.0;
+  const double PI = 3.14159265;
 
+  // set the positions of control points
+  for (i=0; i< numMass; i++)
+      {
+			tRadians = -((i / 7.0) * 360 * PI/180);
+			jello.p[i].x = radius * cos(tRadians);//0.0; //-1.0 * i / 7;
+			jello.p[i].y = radius * sin(tRadians);//0.0; //-1.0 * j / 7;
+			jello.p[i].z = c * tRadians + 1.5;//-1.0 * i / 7;
       }
 
   // set the velocities of control points
-  for (i=0; i<=7; i++)
-    for (j=0; j<=7; j++)
-      for (k=0; k<=7; k++)
-      {
-        jello.v[i][j][k].x=0.0;
-	  	  jello.v[i][j][k].y=0.0;
-		    jello.v[i][j][k].z=0.0;
-      }
+  for (i=0; i< numMass; i++)
+	{
+		jello.v[i].x=0.0;
+		jello.v[i].y=0.0;
+		jello.v[i].z=0.0;
+	}
 
   // write the jello variable out to file on disk
   // change jello.w to whatever you need

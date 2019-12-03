@@ -7,6 +7,7 @@
 
 #include "jello.h"
 #include "input.h"
+#include "physics.h"
 
 /* Write a screenshot, in the PPM format, to the specified filename, in PPM format */
 void saveScreenshot(int windowWidth, int windowHeight, char *filename)
@@ -133,6 +134,22 @@ void keyboardFunc (unsigned char key, int x, int y)
     case ' ':
       saveScreenToFile = 1 - saveScreenToFile;
       break;
+
+	case 'i':
+		up = 1 - up;
+		break;
+		
+	case 'k':
+		down = 1 - down;
+		break;
+
+	case 'j':
+		left = 1 - left;
+		break;
+
+	case 'l':
+		right = 1 - right;
+		break;
   }
 }
 
@@ -218,8 +235,11 @@ void readWorld (char * fileName, struct world * jello)
   fscanf(file, "%lf %lf %lf %lf\n", 
     &jello->kElastic, &jello->dElastic, &jello->kCollision, &jello->dCollision);
 
+  jello->dElastic = 0.25;
+
   /* read mass of each of the 512 points */
   fscanf(file, "%lf\n", &jello->mass);
+  jello->mass = 1.0 / 512.0;
 
   /* read info about the plane */
   fscanf(file, "%d\n", &jello->incPlanePresent);
@@ -233,33 +253,39 @@ void readWorld (char * fileName, struct world * jello)
   if (jello->resolution != 0)
     for (i=0; i<= jello->resolution-1; i++)
       for (j=0; j<= jello->resolution-1; j++)
-        for (k=0; k<= jello->resolution-1; k++)
-          fscanf(file, "%lf %lf %lf\n", 
-             &jello->forceField[i * jello->resolution * jello->resolution + j * jello->resolution + k].x, 
-             &jello->forceField[i * jello->resolution * jello->resolution + j * jello->resolution + k].y, 
-             &jello->forceField[i * jello->resolution * jello->resolution + j * jello->resolution + k].z);
+		  for (k = 0; k <= jello->resolution - 1; k++) {
+			  fscanf(file, "%lf %lf %lf\n",
+				  &jello->forceField[i * jello->resolution * jello->resolution + j * jello->resolution + k].x,
+				  &jello->forceField[i * jello->resolution * jello->resolution + j * jello->resolution + k].y,
+				  &jello->forceField[i * jello->resolution * jello->resolution + j * jello->resolution + k].z);
+
+			  jello->forceField[i * jello->resolution * jello->resolution + j * jello->resolution + k].x = 0;
+			  jello->forceField[i * jello->resolution * jello->resolution + j * jello->resolution + k].y = 0;
+			  jello->forceField[i * jello->resolution * jello->resolution + j * jello->resolution + k].z = 0;
+		  }
              
   
   /* read initial point positions */
-  for (i= 0; i <= 7 ; i++)
+  for (i= 0; i < numMass; i++)
   {
-    for (j = 0; j <= 7; j++)
-    {
-      for (k = 0; k <= 7; k++)
-        fscanf(file, "%lf %lf %lf\n", 
-          &jello->p[i][j][k].x, &jello->p[i][j][k].y, &jello->p[i][j][k].z);
-    }
+			fscanf(file, "%lf %lf %lf\n",&jello->p[i].x, &jello->p[i].y, &jello->p[i].z);
+
+			jello->p_init[i].x = jello->p[i].x;
+			jello->p_init[i].y = jello->p[i].y;
+			jello->p_init[i].z = jello->p[i].z;
   }
+
+  // COMPUTE INITIAL FRAMES
+  double alpha = 10000.0;
+  springSmoothingFunction(jello, alpha);
+  ComputeFramesInitial(jello);
+  ComputeInitialReferenceVectors(jello);
       
   /* read initial point velocities */
-  for (i = 0; i <= 7 ; i++)
+  for (i = 0; i < numMass ; i++)
   {
-    for (j = 0; j <= 7; j++)
-    {
-      for (k = 0; k <= 7; k++)
         fscanf(file, "%lf %lf %lf\n", 
-          &jello->v[i][j][k].x, &jello->v[i][j][k].y, &jello->v[i][j][k].z);
-    }
+          &jello->v[i].x, &jello->v[i].y, &jello->v[i].z);
   }
 
   fclose(file);
@@ -316,29 +342,20 @@ void writeWorld (char * fileName, struct world * jello)
 
 
   /* write initial point positions */
-  for (i = 0; i <= 7 ; i++)
+  for (i = 0; i < numMass ; i++)
   {
-    for (j = 0; j <= 7; j++)
-    {
-      for (k = 0; k <= 7; k++)
         fprintf(file, "%lf %lf %lf\n", 
-          jello->p[i][j][k].x, jello->p[i][j][k].y, jello->p[i][j][k].z);
-    }
+          jello->p[i].x, jello->p[i].y, jello->p[i].z);
   }
       
   /* write initial point velocities */
-  for (i = 0; i <= 7 ; i++)
+  for (i = 0; i < numMass; i++)
   {
-    for (j = 0; j <= 7; j++)
-    {
-      for (k = 0; k <= 7; k++)
         fprintf(file, "%lf %lf %lf\n", 
-          jello->v[i][j][k].x, jello->v[i][j][k].y, jello->v[i][j][k].z);
-    }
+          jello->v[i].x, jello->v[i].y, jello->v[i].z);
   }
 
   fclose(file);
   
   return;
 }
-

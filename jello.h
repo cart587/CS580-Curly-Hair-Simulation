@@ -16,7 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define pi 3.141592653589793238462643383279 
+#define pi 3.141592653589793238462643383279
+#define numMass 60
 
 // camera angles
 extern double Theta;
@@ -37,8 +38,16 @@ struct point
    double z;
 };
 
+struct point4D
+{
+	double x;
+	double y;
+	double z;
+	double w = 1;
+};
+
 // these variables control what is displayed on the screen
-extern int shear, bend, structural, pause, viewingMode, saveScreenToFile;
+extern int shear, bend, structural, pause, viewingMode, saveScreenToFile, up, down, left, right;
 
 struct world
 {
@@ -54,8 +63,14 @@ struct world
   double a,b,c,d; // inclined plane has equation a * x + b * y + c * z + d = 0; if no inclined plane, these four fields are not used
   int resolution; // resolution for the 3d grid specifying the external force field; value of 0 means that there is no force field
   struct point * forceField; // pointer to the array of values of the force field
-  struct point p[8][8][8]; // position of the 512 control points
-  struct point v[8][8][8]; // velocities of the 512 control points
+  struct point p[numMass]; // position of the 512 control points
+  struct point v[numMass]; // velocities of the 512 control points
+  struct point p_init[numMass];
+  struct point p_smoothed[numMass]; // position of the 512 control points after applying smoothing function
+  double local_frames_init[numMass][3][3]; // initial local frames
+  double local_frames_curr[numMass][3][3];
+  struct point t_init[numMass];
+  struct point t[numMass];
 };
 
 extern struct world jello;

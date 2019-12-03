@@ -20,13 +20,11 @@ enum CollisionPlane
 
 /*Checks if a mass located at currI, currJ, currK can have a neighbor at the location given by
 offsets in the i,j, and k direction*/
-bool validNeighbor(int currI, int currJ, int currK, int iOffset, int jOffset, int kOffset)
+bool validNeighbor(int currI, int iOffset)
 {
 	int neighborI = currI + iOffset;
-	int neighborJ = currJ + jOffset;
-	int neighborK = currK + kOffset;
 
-	return !((neighborI > 7) || (neighborI < 0) || (neighborJ > 7) || (neighborJ < 0) || (neighborK > 7) || (neighborK < 0));
+	return !((neighborI >= numMass) || (neighborI < 0));
 }
 
 /*Returns the magnitude of a given vector*/
@@ -68,40 +66,42 @@ point computeVectorScale(struct point vector, double scale)
 /*ADDED: Apply smoothing function to spring points*/
 void springSmoothingFunction(struct world* jello, double alpha)
 {
+	alpha = 10.0;
 	// compute avg rest length
 	double totalLength = 0.0;
 
-	for (int i = 1; i < 8; i++)
+	for (int i = 1; i < numMass; i++)
 	{
-		point currVec = computeVectorSubtraction(jello->p_init[i][0][0], jello->p_init[i - 1][0][0]);
+		point currVec = computeVectorSubtraction(jello->p_init[i], jello->p_init[i - 1]);
 
 		totalLength += computeVectorMagnitude(currVec);
 	}
 
 	double avgRestLength = totalLength / 7.0;
-	double beta = min(1, 1 - exp(-avgRestLength / alpha));
-
-	point d[8][8][8];
+	double beta = (alpha <= 1e-5) ? 1 : min(1, 1 - exp(-avgRestLength / alpha));
+	point d[numMass];
 
 	// compute d
-	for (int i = 0; i < 7; i++)
+	for (int i = 0; i < numMass - 1; i++)
 	{
-		point dminus1 = (i - 1 < 0) ? computeVectorSubtraction(jello->p[1][0][0], jello->p[0][0][0]) : d[i - 1][0][0];
-		point dminus2 = (i - 2 < 0) ? computeVectorSubtraction(jello->p[1][0][0], jello->p[0][0][0]) : d[i - 2][0][0];
-		point nextPointMinusThis = computeVectorSubtraction(jello->p[i + 1][0][0], jello->p[i][0][0]);
+		point dminus1 = (i - 1 < 0) ? computeVectorSubtraction(jello->p[1], jello->p[0]) : d[i - 1];
+		point dminus2 = (i - 2 < 0) ? computeVectorSubtraction(jello->p[1], jello->p[0]) : d[i - 2];
+		point nextPointMinusThis = computeVectorSubtraction(jello->p[i + 1], jello->p[i]);
 
 		point firstTerm = computeVectorScale(dminus1, (2 * (1 - beta)));
 		point secondTerm = computeVectorScale(dminus2, (1 - beta)*(1 - beta));
 		point thirdTerm = computeVectorScale(nextPointMinusThis, beta*beta);
 
-		d[i][0][0] = computeVectorSubtraction(firstTerm, secondTerm);
-		d[i][0][0] = computeVectorAddition(d[i][0][0], thirdTerm);
+		d[i] = computeVectorSubtraction(firstTerm, secondTerm);
+		d[i] = computeVectorAddition(d[i], thirdTerm);
 	}
 
+	jello->p_smoothed[0] = jello->p_init[0];
+
 	// recompute p after the root
-	for (int i = 1; i < 8; i++)
+	for (int i = 1; i < numMass; i++)
 	{
-		jello->p[i][0][0] = computeVectorAddition(jello->p[i - 1][0][0], d[i - 1][0][0]);
+		jello->p_smoothed[i] = computeVectorAddition(jello->p_smoothed[i - 1], d[i - 1]);
 	}
 }
 
@@ -109,7 +109,7 @@ void springSmoothingFunction(struct world* jello, double alpha)
 void applySpringForce(struct point origin, struct point neighbor, struct point * force, struct world * jello, double restLength)
 {
 	struct point vector;
-	double kCoefficient = jello->kElastic;
+	double kCoefficient = 500000.0;//orig:5000.0; demo: 0.0;
 
 	//Length vector from origin to neighbor
 	vector.x = neighbor.x - origin.x;
@@ -126,12 +126,33 @@ void applySpringForce(struct point origin, struct point neighbor, struct point *
 
 }
 
+void applyBendSpringForce(struct point origin, struct point neighbor, struct point * force, struct world * jello)
+{
+	struct point vector;
+	double kCoefficient = 10;//orig: 10.0; demo: 0.0,; //jello->kElastic;
+
+	//Length vector from origin to neighbor
+	vector.x = neighbor.x - origin.x;
+	vector.y = neighbor.y - origin.y;
+	vector.z = neighbor.z - origin.z;
+
+	struct point result;
+	pMULTIPLY(vector, kCoefficient, result);
+
+	force->x += result.x;
+	force->y += result.y;
+	force->z += result.z;
+}
+
 /*Calculates the damping force that should be applied to the force that the origin mass has on the neighbor mass.
 Result is accumulated into the neighbor's corresponding location in the force array*/
 void applyDampingForce(struct point origin, struct point neighbor, struct point * force, \
 						struct world * jello, struct point oVelocity, struct point nVelocity, double dCoefficient)
 {
-	struct point lengthVector, velocityVector;
+	dCoefficient = 10.25;//orig: 10.25; demo:
+
+	struct point lengthVector; 
+	struct point velocityVector;
 	double scalarResult, currLength;
 
 	//subtract velocity vectors
@@ -154,271 +175,78 @@ void applyDampingForce(struct point origin, struct point neighbor, struct point 
 	force->z += (scalarResult * lengthVector.z);
 }
 
+void apply520DampingForce(struct point edge, struct point * force, \
+	struct world * jello, struct point oVelocity, struct point nVelocity, double dCoefficient)
+{
+	dCoefficient = 1.25;//orig:1.25; demo:0.0;
+
+	struct point velocityVector;
+	double velocityEHatDot;
+
+	//subtract velocity vectors
+	velocityVector.x = nVelocity.x - oVelocity.x;
+	velocityVector.y = nVelocity.y - oVelocity.y;
+	velocityVector.z = nVelocity.z - oVelocity.z;
+
+	//calculate length vector
+	struct point eHat = computeVectorNormalized(edge);
+
+	//dot product
+	velocityEHatDot = (velocityVector.x * eHat.x) + (velocityVector.y * eHat.y) + (velocityVector.z * eHat.z);
+
+	struct point projectedEHat, dampingDirection, result;
+	pMULTIPLY(eHat, velocityEHatDot, projectedEHat);
+	pDIFFERENCE(velocityVector, projectedEHat, dampingDirection);
+	pMULTIPLY(dampingDirection, dCoefficient, result);
+
+	force->x += result.x;
+	force->y += result.y;
+	force->z += result.z;
+}
+
 /*Takes the mass represented by the index [bi][bj][bk] and applies spring forces to the 6 structural neighbors of the mass.
 Results are stored in the forces array*/
-void applyStructuralForceToNeighbors(int bi, int bj, int bk, struct world *jello, struct point forces[8][8][8])
+void applyStructuralForceToNeighbors(int bi, struct world *jello, struct point forces[numMass])
 {
 	struct point neighborPoint, nVelocity;
-	struct point originPoint = jello->p[bi][bj][bk];
-	struct point originVelocity = jello->v[bi][bj][bk];
+	struct point originPoint = jello->p[bi];
+	struct point originVelocity = jello->v[bi];
 	double kCoefficient = jello->kElastic;
-	double restLength = 1.0 / 7.0;
+	double restLength = computeVectorMagnitude(computeVectorSubtraction(jello->p_init[1], jello->p_init[0]));
 
 	//Neighbor in positive x direction
-	if (validNeighbor(bi, bj, bk, 1, 0, 0)) 
+	if (validNeighbor(bi, 1)) 
 	{
-		neighborPoint = jello->p[bi + 1][bj][bk];
-		nVelocity = jello->v[bi + 1][bj][bk];
-		applySpringForce(originPoint, neighborPoint, &forces[bi + 1][bj][bk], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi + 1][bj][bk], jello, originVelocity, nVelocity, jello->dElastic);
+		neighborPoint = jello->p[bi + 1];
+		nVelocity = jello->v[bi + 1];
+		applySpringForce(originPoint, neighborPoint, &forces[bi + 1], jello, restLength);
+		applyDampingForce(originPoint, neighborPoint, &forces[bi + 1], jello, originVelocity, nVelocity, jello->dElastic);
 	}
 }
 
-/*Takes the mass represented by the index [bi][bj][bk] and applies spring forces to the 20 shear neighbors of the mass.
+/*Takes the mass represented by the index [bi] and applies spring forces to the 6 bend neighbors of the mass.
 Results are stored in the forces array*/
-void applyShearForceToNeighbors(int bi, int bj, int bk, struct world *jello, struct point forces[8][8][8])
+void applyBendForceToNeighbors(int bi, struct world *jello, struct point forces[numMass])
 {
-	struct point neighborPoint, nVelocity;
-	struct point originPoint = jello->p[bi][bj][bk];
-	struct point originVelocity = jello->v[bi][bj][bk];
-	double kCoefficient = jello->kElastic;
-	double restLength = sqrt(2.0) / 7.0;
-	double longRestLength = sqrt(3.0) / 7.0;
+	struct point nVelocity = jello->v[bi + 1];
+	struct point originVelocity = jello->v[bi];
+	struct point edge;
 
-	//There are 20 Shear neighbors
-
-	if (validNeighbor(bi, bj, bk, 1, -1, -1))
-	{
-		neighborPoint = jello->p[bi + 1][bj - 1][bk - 1];
-		nVelocity = jello->v[bi + 1][bj - 1][bk - 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi + 1][bj - 1][bk - 1], jello, longRestLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi + 1][bj - 1][bk - 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, -1, -1, -1))
-	{
-		neighborPoint = jello->p[bi - 1][bj - 1][bk - 1];
-		nVelocity = jello->v[bi - 1][bj - 1][bk - 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi - 1][bj - 1][bk - 1], jello, longRestLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi - 1][bj - 1][bk - 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, -1, 1, -1))
-	{
-		neighborPoint = jello->p[bi - 1][bj + 1][bk - 1];
-		nVelocity = jello->v[bi - 1][bj + 1][bk - 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi - 1][bj + 1][bk - 1], jello, longRestLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi - 1][bj + 1][bk - 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 1, 1, -1))
-	{
-		neighborPoint = jello->p[bi + 1][bj + 1][bk - 1];
-		nVelocity = jello->v[bi + 1][bj + 1][bk - 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi + 1][bj + 1][bk - 1], jello, longRestLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi + 1][bj + 1][bk - 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 1, -1, 1))
-	{
-		neighborPoint = jello->p[bi + 1][bj - 1][bk + 1];
-		nVelocity = jello->v[bi + 1][bj - 1][bk + 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi + 1][bj - 1][bk + 1], jello, longRestLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi + 1][bj - 1][bk + 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, -1, -1, 1))
-	{
-		neighborPoint = jello->p[bi - 1][bj - 1][bk + 1];
-		nVelocity = jello->v[bi - 1][bj - 1][bk + 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi - 1][bj - 1][bk + 1], jello, longRestLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi - 1][bj - 1][bk + 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, -1, 1, 1))
-	{
-		neighborPoint = jello->p[bi - 1][bj + 1][bk + 1];
-		nVelocity = jello->v[bi - 1][bj + 1][bk + 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi - 1][bj + 1][bk + 1], jello, longRestLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi - 1][bj + 1][bk + 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 1, 1, 1))
-	{
-		neighborPoint = jello->p[bi + 1][bj + 1][bk + 1];
-		nVelocity = jello->v[bi + 1][bj + 1][bk + 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi + 1][bj + 1][bk + 1], jello, longRestLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi + 1][bj + 1][bk + 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 1, 1, 0))
-	{
-		neighborPoint = jello->p[bi + 1][bj + 1][bk];
-		nVelocity = jello->v[bi + 1][bj + 1][bk];
-		applySpringForce(originPoint, neighborPoint, &forces[bi + 1][bj + 1][bk], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi + 1][bj + 1][bk], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, -1, 1, 0))
-	{
-		neighborPoint = jello->p[bi - 1][bj + 1][bk];
-		nVelocity = jello->v[bi - 1][bj + 1][bk];
-		applySpringForce(originPoint, neighborPoint, &forces[bi - 1][bj + 1][bk], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi - 1][bj + 1][bk], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, -1, -1, 0))
-	{
-		neighborPoint = jello->p[bi - 1][bj - 1][bk];
-		nVelocity = jello->v[bi - 1][bj - 1][bk];
-		applySpringForce(originPoint, neighborPoint, &forces[bi - 1][bj - 1][bk], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi - 1][bj - 1][bk], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 1, -1, 0))
-	{
-		neighborPoint = jello->p[bi + 1][bj - 1][bk];
-		nVelocity = jello->v[bi + 1][bj - 1][bk];
-		applySpringForce(originPoint, neighborPoint, &forces[bi + 1][bj - 1][bk], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi + 1][bj - 1][bk], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 0, 1, 1))
-	{
-		neighborPoint = jello->p[bi][bj + 1][bk + 1];
-		nVelocity = jello->v[bi][bj + 1][bk + 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi][bj + 1][bk + 1], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi][bj + 1][bk + 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 0, -1, 1))
-	{
-		neighborPoint = jello->p[bi][bj - 1][bk + 1];
-		nVelocity = jello->v[bi][bj - 1][bk + 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi][bj - 1][bk + 1], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi][bj - 1][bk + 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 0, -1, -1))
-	{
-		neighborPoint = jello->p[bi][bj - 1][bk - 1];
-		nVelocity = jello->v[bi][bj - 1][bk - 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi][bj - 1][bk - 1], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi][bj - 1][bk - 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 0, 1, -1))
-	{
-		neighborPoint = jello->p[bi][bj + 1][bk - 1];
-		nVelocity = jello->v[bi][bj + 1][bk - 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi][bj + 1][bk - 1], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi][bj + 1][bk - 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 1, 0, 1))
-	{
-		neighborPoint = jello->p[bi + 1][bj][bk + 1];
-		nVelocity = jello->v[bi + 1][bj][bk + 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi + 1][bj][bk + 1], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi + 1][bj][bk + 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, -1, 0, 1))
-	{
-		neighborPoint = jello->p[bi - 1][bj][bk + 1];
-		nVelocity = jello->v[bi - 1][bj][bk + 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi - 1][bj][bk + 1], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi - 1][bj][bk + 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, -1, 0, -1))
-	{
-		neighborPoint = jello->p[bi - 1][bj][bk - 1];
-		nVelocity = jello->v[bi - 1][bj][bk - 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi - 1][bj][bk - 1], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi - 1][bj][bk - 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 1, 0, -1))
-	{
-		neighborPoint = jello->p[bi + 1][bj][bk - 1];
-		nVelocity = jello->v[bi + 1][bj][bk - 1];
-		applySpringForce(originPoint, neighborPoint, &forces[bi + 1][bj][bk - 1], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi + 1][bj][bk - 1], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-}
-
-/*Takes the mass represented by the index [bi][bj][bk] and applies spring forces to the 6 bend neighbors of the mass.
-Results are stored in the forces array*/
-void applyBendForceToNeighbors(int bi, int bj, int bk, struct world *jello, struct point forces[8][8][8])
-{
-	struct point neighborPoint, nVelocity;
-	struct point originPoint = jello->p[bi][bj][bk];
-	struct point originVelocity = jello->v[bi][bj][bk];
-	double kCoefficient = jello->kElastic;
-	double restLength = 2.0 / 7.0;
-
-	//There are 6 Bend neighbors
-
-	if (validNeighbor(bi, bj, bk, 0, 0, -2))
-	{
-		neighborPoint = jello->p[bi][bj][bk - 2];
-		nVelocity = jello->v[bi][bj][bk - 2];
-		applySpringForce(originPoint, neighborPoint, &forces[bi][bj][bk - 2], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi][bj][bk - 2], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 0, -2, 0))
-	{
-		neighborPoint = jello->p[bi][bj - 2][bk];
-		nVelocity = jello->v[bi][bj - 2][bk];
-		applySpringForce(originPoint, neighborPoint, &forces[bi][bj - 2][bk], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi][bj - 2][bk], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, -2, 0, 0))
-	{
-		neighborPoint = jello->p[bi - 2][bj][bk];
-		nVelocity = jello->v[bi - 2][bj][bk];
-		applySpringForce(originPoint, neighborPoint, &forces[bi - 2][bj][bk], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi - 2][bj][bk], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 0, 0, 2))
-	{
-		neighborPoint = jello->p[bi][bj][bk + 2];
-		nVelocity = jello->v[bi][bj][bk + 2];
-		applySpringForce(originPoint, neighborPoint, &forces[bi][bj][bk + 2], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi][bj][bk + 2], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 0, 2, 0))
-	{
-		neighborPoint = jello->p[bi][bj + 2][bk];
-		nVelocity = jello->v[bi][bj + 2][bk];
-		applySpringForce(originPoint, neighborPoint, &forces[bi][bj + 2][bk], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi][bj + 2][bk], jello, originVelocity, nVelocity, jello->dElastic);
-	}
-
-	if (validNeighbor(bi, bj, bk, 2, 0, 0))
-	{
-		neighborPoint = jello->p[bi + 2][bj][bk];
-		nVelocity = jello->v[bi + 2][bj][bk];
-		applySpringForce(originPoint, neighborPoint, &forces[bi + 2][bj][bk], jello, restLength);
-		applyDampingForce(originPoint, neighborPoint, &forces[bi + 2][bj][bk], jello, originVelocity, nVelocity, jello->dElastic);
-	}
+	pDIFFERENCE(jello->p[bi], jello->p[bi+1], edge);
+	applyBendSpringForce(jello->t[bi], edge, &forces[bi], jello);
+	apply520DampingForce(edge, &forces[bi], jello, originVelocity, nVelocity, jello->dElastic);
 }
 
 /*Applies a collision spring force to the mass represented by index [bi][bj][bk] and accumulates the result into the
 the mass's corresponding force index. CollisionPlane parameter specifies what plane the mass collided with. This 
 functionn should only be called if an actual collision has been detected. This function does not check if a mass
 point has actually collided. The damping force for the collision is computed at the end*/
-void applyCollisionForce(int bi, int bj, int bk, struct world * jello, struct point forces[8][8][8], CollisionPlane cp)
+void applyCollisionForce(int bi, struct world * jello, struct point forces[numMass], CollisionPlane cp)
 {
 	double scalarResult = -1.0 * jello->kCollision;
 	struct point lengthVector, position, projection, projVelocity;
 
-	position = jello->p[bi][bj][bk];
+	position = jello->p[bi];
 	lengthVector.x = 0.0;
 	lengthVector.y = 0.0;
 	lengthVector.z = 0.0;
@@ -463,56 +291,56 @@ void applyCollisionForce(int bi, int bj, int bk, struct world * jello, struct po
 	}
 
 	//accumulate spring force into array
-	forces[bi][bj][bk].x += (scalarResult * lengthVector.x);
-	forces[bi][bj][bk].y += (scalarResult * lengthVector.y);
-	forces[bi][bj][bk].z += (scalarResult * lengthVector.z);
+	forces[bi].x += (scalarResult * lengthVector.x);
+	forces[bi].y += (scalarResult * lengthVector.y);
+	forces[bi].z += (scalarResult * lengthVector.z);
 
 	//Applies the damping force for collisions
-	applyDampingForce(projection, position, &forces[bi][bj][bk], jello, projVelocity, jello->v[bi][bj][bk], jello->dCollision);
+	applyDampingForce(projection, position, &forces[bi], jello, projVelocity, jello->v[bi], jello->dCollision);
 }
 
 /*This function determines if the mass represented by index [bi][bj][bk] has passed the [-2,2] boundary in the
 X,Y,Z directions. If so, a collision force will be applied to the mass*/
-void checkForCollision(int bi, int bj, int bk, struct world * jello, struct point forces[8][8][8])
+void checkForCollision(int bi, struct world * jello, struct point forces[numMass])
 {
-	struct point position = jello->p[bi][bj][bk];
+	struct point position = jello->p[bi];
 
 	//Collision in x plane boundaries
 	if (position.x > 2.0)
 	{
-		applyCollisionForce(bi, bj, bk, jello, forces, positiveX);
+		applyCollisionForce(bi, jello, forces, positiveX);
 	} 
 	else if (position.x < -2.0)
 	{
-		applyCollisionForce(bi, bj, bk, jello, forces, negativeX);
+		applyCollisionForce(bi, jello, forces, negativeX);
 	}
 
 	//Collision in y plane boundaries
 	if (position.y > 2.0)
 	{
-		applyCollisionForce(bi, bj, bk, jello, forces, positiveY);
+		applyCollisionForce(bi, jello, forces, positiveY);
 	}
 	else if (position.y < -2.0)
 	{
-		applyCollisionForce(bi, bj, bk, jello, forces, negativeY);
+		applyCollisionForce(bi, jello, forces, negativeY);
 	}
 
 	//Collision in z plane boundaries
 	if (position.z > 2.0)
 	{
-		applyCollisionForce(bi, bj, bk, jello, forces, positiveZ);
+		applyCollisionForce(bi, jello, forces, positiveZ);
 	}
 	else if (position.z < -2.0)
 	{
-		applyCollisionForce(bi, bj, bk, jello, forces, negativeZ);
+		applyCollisionForce(bi, jello, forces, negativeZ);
 	}
 }
 
 /*Uses trilinear interpolation to apply the force field, if any, acting on the mass represented by index
 [bi][bj][bk].*/
-void checkForForceField(int mi, int mj, int mk, struct world *jello, struct point forces[8][8][8])
+void checkForForceField(int mi, struct world *jello, struct point forces[numMass])
 {
-	struct point position = jello->p[mi][mj][mk];
+	struct point position = jello->p[mi];
 	const int resolution = jello->resolution;
 	const double boundingBoxMin = -2.0;
 	const double boundingBoxMax = 2.0;
@@ -651,109 +479,102 @@ void checkForForceField(int mi, int mj, int mk, struct world *jello, struct poin
 	totalForceField.z += (x)*(y)*(z)*f111.z;
 
 	//Add the total force from the voxel to the mass's accumulated forces
-	forces[mi][mj][mk].x += totalForceField.x;
-	forces[mi][mj][mk].y += totalForceField.y;
-	forces[mi][mj][mk].z += totalForceField.z;
+	forces[mi].x += totalForceField.x;
+	forces[mi].y += totalForceField.y;
+	forces[mi].z += totalForceField.z;
 }
 
 /*Computes the force field applied to each mass*/
-void computeExternalForces(struct world *jello, struct point forces[8][8][8])
+void computeExternalForces(struct world *jello, struct point forces[numMass])
 {
-	int i, j = 0, k = 0;
-	for (i = 0; i < 8; i++) {
-		checkForForceField(i, j, k, jello, forces);
+	int i;
+	for (i = 0; i < numMass; i++) {
+		forces[i].z += -9.86;
+		//checkForForceField(i, j, k, jello, forces);
 	}
 }
 
 /*Checks and applies spring force if any of the masses have collided with the boundary planes*/
-void computeCollisionSpringForces(struct world * jello, struct point forces[8][8][8])
+void computeCollisionSpringForces(struct world * jello, struct point forces[numMass])
 {
-	int i, j = 0, k = 0;
-	for (i = 0; i < 8; i++) {
-		checkForCollision(i, j, k, jello, forces);
+	int i;
+	for (i = 0; i < numMass; i++) {
+		checkForCollision(i, jello, forces);
 	}
 }
 
 /*	Calculates the force each mass-point has on its bend neighbors, and
 	sums the total force at each point. Returns forces on each mass
 	in result array 'forces'*/
-void computeBendSpringForces(struct world * jello, struct point forces[8][8][8])
+void computeBendSpringForces(struct world * jello, struct point forces[numMass])
 {
-	int i, j, k;
-	for (i = 0; i < 8; i++) {
-		for (j = 0; j < 8; j++) {
-			for (k = 0; k < 8; k++) {
-				applyBendForceToNeighbors(i, j, k, jello, forces);
-			}
-		}
-	}
-}
-
-/*	Calculates the force each mass-point has on its shear neighbors, and
-	sums the total force at each point. Returns forces on each mass
-	in result array 'forces'*/
-void computeShearSpringForces(struct world * jello, struct point forces[8][8][8])
-{
-	int i, j, k;
-	for (i = 0; i < 8; i++) {
-		for (j = 0; j < 8; j++) {
-			for (k = 0; k < 8; k++) {
-				applyShearForceToNeighbors(i, j, k, jello, forces);
-			}
-		}
+	int i;
+	for (i = 0; i < numMass - 1; i++) {
+		applyBendForceToNeighbors(i, jello, forces);
 	}
 }
 
 /*	Calculates the force each mass-point has on its structural neighbors, and
 	sums the total force at each point. Returns forces on each mass
 	in result array 'forces'*/
-void computeStructuralSpringForces(struct world * jello, struct point forces[8][8][8])
+void computeStructuralSpringForces(struct world * jello, struct point forces[numMass])
 {
-	int i, j = 0, k = 0;
-	for (i = 0; i < 8; i++) {
-		applyStructuralForceToNeighbors(i, j, k, jello, forces);
+	int i;
+	for (i = 0; i < numMass; i++) {
+		applyStructuralForceToNeighbors(i, jello, forces);
 	}
 }
 
 /*Takes the total force applied to each mass and computes the acceleration by dividing each component
 by the mass. Function should be called after all shear, bend, structural, collision, and external forces
 have been calculated and summed*/
-void computeEachMassAcceleration(struct world * jello, struct point forces[8][8][8], struct point a[8][8][8])
+void computeEachMassAcceleration(struct world * jello, struct point forces[numMass], struct point a[numMass])
 {
-	int i, j = 0, k = 0;
+	int i;
 
-	for (i = 0; i < 8; i++) {
-		a[i][j][k].x = forces[i][j][k].x / jello->mass;
-		a[i][j][k].y = forces[i][j][k].y / jello->mass;
-		a[i][j][k].z = forces[i][j][k].z / jello->mass;
+	for (i = 0; i < numMass; i++) {
+		a[i].x = forces[i].x / jello->mass;
+		a[i].y = forces[i].y / jello->mass;
+		a[i].z = forces[i].z / jello->mass;
 	}
 }
 
 /* Computes acceleration to every control point of the jello cube, 
    which is in state given by 'jello'.
    Returns result in array 'a'. */
-void computeAcceleration(struct world * jello, struct point a[8][8][8])
+void computeAcceleration(struct world * jello, struct point a[numMass])
 {
   /* for you to implement ... */
-	struct point forces[8][8][8];
-	int i, j, k;
-	double alpha = 6.0;
+	struct point forces[numMass];
+	int i;
+	double alpha = 0.0;
 
-	for (i = 0; i < 8; i++) {
-		for (j = 0; j < 8; j++) {
-			for (k = 0; k < 8; k++) {
-				forces[i][j][k].x = 0.0;
-				forces[i][j][k].y = 0.0;
-				forces[i][j][k].z = 0.0;
-			}
+	for (i = 0; i < numMass; i++) {
+		forces[i].x = 0.0;
+		forces[i].y = 0.0;
+		forces[i].z = 0.0; 
+		if (up == 1) {
+			forces[i].z += 1.0 * ((double)i);
+		}
+		else if (down == 1) {
+			forces[i].z += -1.0 * ((double)i);
+		}
+
+		if (left == 1) {
+			forces[i].y += -1.0 * ((double)i);
+		} 
+		else if (right == 1) {
+			forces[i].y += 1.0 * ((double)i);
 		}
 	}
 
 	computeStructuralSpringForces(jello, forces);
 	springSmoothingFunction(jello, alpha);
-	// computeShearSpringForces(jello, forces);
-	// computeBendSpringForces(jello, forces);
-	computeCollisionSpringForces(jello, forces);
+	ComputeFrames(jello);
+	ComputeReferenceVectors(jello);
+	computeBendSpringForces(jello, forces);
+	
+	//computeCollisionSpringForces(jello, forces);
 	computeExternalForces(jello, forces);
 
 	computeEachMassAcceleration(jello, forces, a);
@@ -765,121 +586,256 @@ void computeAcceleration(struct world * jello, struct point a[8][8][8])
 void Euler(struct world * jello)
 {
   int i,j = 0,k = 0;
-  point a[8][8][8];
+  point a[numMass];
 
   computeAcceleration(jello, a);
   
   //keep first mass frozen
-  jello->p[0][j][k].x = 0;
-  jello->p[0][j][k].y = 0;
-  jello->p[0][j][k].z = 0;
-  jello->v[0][j][k].x = 0;
-  jello->v[0][j][k].y = 0;
-  jello->v[0][j][k].z = 0;
+  jello->p[0].x = jello->p_init[0].x;
+  jello->p[0].y = jello->p_init[0].y;
+  jello->p[0].z = jello->p_init[0].z;
+  jello->v[0].x = 0;
+  jello->v[0].y = 0;
+  jello->v[0].z = 0;
 
-  for (i=1; i<=7; i++)
+  double maxLength = 3.0 / 7.0;
+  double maxVelocity = 30;
+
+  for (i=1; i < numMass; i++)
   {
-	jello->p[i][j][k].x += jello->dt * jello->v[i][j][k].x;
-	jello->p[i][j][k].y += jello->dt * jello->v[i][j][k].y;
-	jello->p[i][j][k].z += jello->dt * jello->v[i][j][k].z;
-	jello->v[i][j][k].x += jello->dt * a[i][j][k].x;
-	jello->v[i][j][k].y += jello->dt * a[i][j][k].y;
-	jello->v[i][j][k].z += jello->dt * a[i][j][k].z;
+	jello->p[i].x += jello->dt * jello->v[i].x;
+	jello->p[i].y += jello->dt * jello->v[i].y;
+	jello->p[i].z += jello->dt * jello->v[i].z;
+	jello->v[i].x += jello->dt * a[i].x;
+	jello->v[i].y += jello->dt * a[i].y;
+	jello->v[i].z += jello->dt * a[i].z;
+  }
+
+  //LIMIT VELOCITY
+  for (i = 1; i < numMass; i++) {
+	  double velocityMagnitude = computeVectorMagnitude(jello->v[i]);
+	  if (velocityMagnitude > maxVelocity) {
+		  double ratio = maxVelocity / velocityMagnitude;
+		  pMULTIPLY(jello->v[i], ratio, jello->v[i]);
+	  }
+  }
+
+  //LIMIT POSITION
+  for (i = 0; i < numMass - 1; i++) {
+	  struct point lengthVector;
+	  pDIFFERENCE(jello->p[i + 1], jello->p[i], lengthVector);
+
+	  if (computeVectorMagnitude(lengthVector) > maxLength) {
+		  struct point newPosition;
+		  struct point offset;
+		  double ratio = maxLength / computeVectorMagnitude(lengthVector);
+
+		  pMULTIPLY(lengthVector, ratio, newPosition);
+		  pSUM(jello->p[i], newPosition, newPosition);
+		  pDIFFERENCE(newPosition, jello->p[i + 1], offset);
+		  pCPY(newPosition, jello->p[i + 1]);
+
+		  for (int j = i + 1; j < numMass - 1; j++) {
+			  pSUM(jello->p[j], offset, jello->p[j]);
+		  }
+	  }
   }
 }
 
-/* performs one step of RK4 Integration */
-/* as a result, updates the jello structure */
-void RK4(struct world * jello)
+point computeVectorNormalized(point vector)
 {
-  point F1p[8][8][8], F1v[8][8][8], 
-        F2p[8][8][8], F2v[8][8][8],
-        F3p[8][8][8], F3v[8][8][8],
-        F4p[8][8][8], F4v[8][8][8];
+	point ret;
+	double length = sqrt(vector.x*vector.x + vector.y*vector.y + vector.z*vector.z);
+	ret.x = vector.x / length;
+	ret.y = vector.y / length;
+	ret.z = vector.z / length;
+	return ret;
 
-  point a[8][8][8];
+}
+
+void ComputeFramesInitial(struct world* jello)
+{
+	// ADDED: calculate initial local frames by parallel transport of root
+	point up;
+	up.x = 0.0;
+	up.y = 0.0;
+	up.z = 1.0;
+
+	for (int i = 0; i < numMass - 1; i++)
+	{
+		point start;
+		start.x = jello->p_smoothed[i].x;
+		start.y = jello->p_smoothed[i].y;
+		start.z = jello->p_smoothed[i].z;
+
+		point end;
+		end.x = jello->p_smoothed[i + 1].x;
+		end.y = jello->p_smoothed[i + 1].y;
+		end.z = jello->p_smoothed[i + 1].z;
+
+		point currUp;
+		currUp.x = up.x;
+		currUp.y = up.y;
+		currUp.z = up.z;
+
+		point pos;
+		pos.x = start.x;
+		pos.y = start.y;
+		pos.z = start.z;
+
+		point aim;
+		pDIFFERENCE(start, end, aim);
+		aim = computeVectorNormalized(aim);
+
+		point cross;
+		CROSSPRODUCTp(aim, up, cross);
+		cross = computeVectorNormalized(cross);
+
+		CROSSPRODUCTp(cross, aim, currUp);
+		currUp = computeVectorNormalized(currUp);
+
+		jello->local_frames_init[i][0][0] = aim.x;
+		jello->local_frames_init[i][1][0] = aim.y;
+		jello->local_frames_init[i][2][0] = aim.z;
+		jello->local_frames_init[i][0][1] = currUp.x;
+		jello->local_frames_init[i][1][1] = currUp.y;
+		jello->local_frames_init[i][2][1] = currUp.z;
+		jello->local_frames_init[i][0][2] = cross.x;
+		jello->local_frames_init[i][1][2] = cross.y;
+		jello->local_frames_init[i][2][2] = cross.z;
+		
+
+		up.x = currUp.x;
+		up.y = currUp.y;
+		up.z = currUp.z;
+	}
+}
+
+void ComputeFrames(struct world* jello)
+{
+	// ADDED: calculate initial local frames by parallel transport of root
+	point up;
+	up.x = 0.0;
+	up.y = 0.0;
+	up.z = 1.0;
+
+	for (int i = 0; i < numMass - 1; i++)
+	{
+		point start;
+		start.x = jello->p_smoothed[i].x;
+		start.y = jello->p_smoothed[i].y;
+		start.z = jello->p_smoothed[i].z;
+
+		point end;
+		end.x = jello->p_smoothed[i + 1].x;
+		end.y = jello->p_smoothed[i + 1].y;
+		end.z = jello->p_smoothed[i + 1].z;
+
+		point currUp;
+		currUp.x = up.x;
+		currUp.y = up.y;
+		currUp.z = up.z;
+
+		point pos;
+		pos.x = start.x;
+		pos.y = start.y;
+		pos.z = start.z;
+
+		point aim;
+		pDIFFERENCE(start, end, aim);
+		aim = computeVectorNormalized(aim);
+
+		point cross;
+		CROSSPRODUCTp(aim, up, cross);
+		cross = computeVectorNormalized(cross);
+
+		CROSSPRODUCTp(cross, aim, currUp);
+		currUp = computeVectorNormalized(currUp);
+
+		jello->local_frames_curr[i][0][0] = aim.x;
+		jello->local_frames_curr[i][1][0] = aim.y;
+		jello->local_frames_curr[i][2][0] = aim.z;
+		jello->local_frames_curr[i][0][1] = currUp.x;
+		jello->local_frames_curr[i][1][1] = currUp.y;
+		jello->local_frames_curr[i][2][1] = currUp.z;
+		jello->local_frames_curr[i][0][2] = cross.x;
+		jello->local_frames_curr[i][1][2] = cross.y;
+		jello->local_frames_curr[i][2][2] = cross.z;
 
 
-  struct world buffer;
+		up.x = currUp.x;
+		up.y = currUp.y;
+		up.z = currUp.z;
+	}
+}
 
-  int i,j,k;
+void multiplyFrameByEdgeInit(double matrix[][3], double edge[][1], point &dst) {
+	double matrixT[3][3];
+	transposeMatrix(matrix, matrixT);
 
-  buffer = *jello; // make a copy of jello
+	double temp[3][1];
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 1; j++) {
+			temp[i][j] = 0;
+			for (int k = 0; k < 3; k++) {
+				temp[i][j] += matrix[i][k] * edge[k][j];
+			}
+		}
+	}
 
-  computeAcceleration(jello, a);
+	dst.x = temp[0][0];
+	dst.y = temp[1][0];
+	dst.z = temp[2][0];
+}
 
-  for (i=0; i<=7; i++)
-    for (j=0; j<=7; j++)
-      for (k=0; k<=7; k++)
-      {
-         pMULTIPLY(jello->v[i][j][k],jello->dt,F1p[i][j][k]);
-         pMULTIPLY(a[i][j][k],jello->dt,F1v[i][j][k]);
-         pMULTIPLY(F1p[i][j][k],0.5,buffer.p[i][j][k]);
-         pMULTIPLY(F1v[i][j][k],0.5,buffer.v[i][j][k]);
-         pSUM(jello->p[i][j][k],buffer.p[i][j][k],buffer.p[i][j][k]);
-         pSUM(jello->v[i][j][k],buffer.v[i][j][k],buffer.v[i][j][k]);
-      }
+void multiplyFrameByEdge(double matrix[][3], double edge[][1], point &dst) {
+	double matrixT[3][3];
 
-  computeAcceleration(&buffer, a);
+	double temp[3][1];
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 1; j++) {
+			temp[i][j] = 0;
+			for (int k = 0; k < 3; k++) {
+				temp[i][j] += matrix[i][k] * edge[k][j];
+			}
+		}
+	}
 
-  for (i=0; i<=7; i++)
-    for (j=0; j<=7; j++)
-      for (k=0; k<=7; k++)
-      {
-         // F2p = dt * buffer.v;
-         pMULTIPLY(buffer.v[i][j][k],jello->dt,F2p[i][j][k]);
-         // F2v = dt * a(buffer.p,buffer.v);     
-         pMULTIPLY(a[i][j][k],jello->dt,F2v[i][j][k]);
-         pMULTIPLY(F2p[i][j][k],0.5,buffer.p[i][j][k]);
-         pMULTIPLY(F2v[i][j][k],0.5,buffer.v[i][j][k]);
-         pSUM(jello->p[i][j][k],buffer.p[i][j][k],buffer.p[i][j][k]);
-         pSUM(jello->v[i][j][k],buffer.v[i][j][k],buffer.v[i][j][k]);
-      }
+	dst.x = temp[0][0];
+	dst.y = temp[1][0];
+	dst.z = temp[2][0];
+}
 
-  computeAcceleration(&buffer, a);
+void transposeMatrix(double src[][3], double dst[][3]) {
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 3; j++) {
+			dst[j][i] = src[i][j];
+		}
+	}
+}
 
-  for (i=0; i<=7; i++)
-    for (j=0; j<=7; j++)
-      for (k=0; k<=7; k++)
-      {
-         // F3p = dt * buffer.v;
-         pMULTIPLY(buffer.v[i][j][k],jello->dt,F3p[i][j][k]);
-         // F3v = dt * a(buffer.p,buffer.v);     
-         pMULTIPLY(a[i][j][k],jello->dt,F3v[i][j][k]);
-         pMULTIPLY(F3p[i][j][k],1.0,buffer.p[i][j][k]);
-         pMULTIPLY(F3v[i][j][k],1.0,buffer.v[i][j][k]);
-         pSUM(jello->p[i][j][k],buffer.p[i][j][k],buffer.p[i][j][k]);
-         pSUM(jello->v[i][j][k],buffer.v[i][j][k],buffer.v[i][j][k]);
-      }
-         
-  computeAcceleration(&buffer, a);
+void ComputeInitialReferenceVectors(struct world* jello) {
 
+	for (int i = 1; i < numMass; i++) {
+		point edge;
+		pDIFFERENCE(jello->p_init[i], jello->p_init[i + 1], edge);
+		double edgeAsArray[3][1];
+		edgeAsArray[0][0] = edge.x;
+		edgeAsArray[1][0] = edge.y;
+		edgeAsArray[2][0] = edge.z;
 
-  for (i=0; i<=7; i++)
-    for (j=0; j<=7; j++)
-      for (k=0; k<=7; k++)
-      {
-         // F3p = dt * buffer.v;
-         pMULTIPLY(buffer.v[i][j][k],jello->dt,F4p[i][j][k]);
-         // F3v = dt * a(buffer.p,buffer.v);     
-         pMULTIPLY(a[i][j][k],jello->dt,F4v[i][j][k]);
+		multiplyFrameByEdgeInit(jello->local_frames_init[i], edgeAsArray, jello->t_init[i]);
+	}
+}
 
-         pMULTIPLY(F2p[i][j][k],2,buffer.p[i][j][k]);
-         pMULTIPLY(F3p[i][j][k],2,buffer.v[i][j][k]);
-         pSUM(buffer.p[i][j][k],buffer.v[i][j][k],buffer.p[i][j][k]);
-         pSUM(buffer.p[i][j][k],F1p[i][j][k],buffer.p[i][j][k]);
-         pSUM(buffer.p[i][j][k],F4p[i][j][k],buffer.p[i][j][k]);
-         pMULTIPLY(buffer.p[i][j][k],1.0 / 6,buffer.p[i][j][k]);
-         pSUM(buffer.p[i][j][k],jello->p[i][j][k],jello->p[i][j][k]);
+void ComputeReferenceVectors(struct world* jello) {
 
-         pMULTIPLY(F2v[i][j][k],2,buffer.p[i][j][k]);
-         pMULTIPLY(F3v[i][j][k],2,buffer.v[i][j][k]);
-         pSUM(buffer.p[i][j][k],buffer.v[i][j][k],buffer.p[i][j][k]);
-         pSUM(buffer.p[i][j][k],F1v[i][j][k],buffer.p[i][j][k]);
-         pSUM(buffer.p[i][j][k],F4v[i][j][k],buffer.p[i][j][k]);
-         pMULTIPLY(buffer.p[i][j][k],1.0 / 6,buffer.p[i][j][k]);
-         pSUM(buffer.p[i][j][k],jello->v[i][j][k],jello->v[i][j][k]);
-      }
+	for (int i = 1; i < numMass; i++) {
+		double edgeAsArray[3][1];
+		edgeAsArray[0][0] = jello->t_init[i].x;
+		edgeAsArray[1][0] = jello->t_init[i].y;
+		edgeAsArray[2][0] = jello->t_init[i].z;
 
-  return;  
+		multiplyFrameByEdge(jello->local_frames_curr[i], edgeAsArray, jello->t[i]);
+	}
 }
